@@ -1,3 +1,7 @@
+# This application is still under development.
+# Author: Couto, B.A.N. (2023)
+# ICApp: An application for visualizing and selecting ICA components.
+
 from PyQt5 import QtGui
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QStackedWidget, QLabel, QListWidget, QListWidgetItem, QLineEdit, QShortcut
 from PyQt5.QtCore import pyqtSlot, Qt, QThread, pyqtSignal
