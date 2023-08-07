@@ -1,5 +1,5 @@
 from PyQt5 import QtGui
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QStackedWidget, QLabel, QListWidget, QListWidgetItem, QLineEdit
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QStackedWidget, QLabel, QListWidget, QListWidgetItem, QLineEdit, QShortcut
 from PyQt5.QtCore import pyqtSlot, Qt, QThread, pyqtSignal
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -43,7 +43,7 @@ class PlotThread(QThread):
         axs[0,1].set_title('Evoked Signal with Component ' + str(self.comp+1).zfill(2) + ' Removed')
 
         # Trials/Epochs
-        im = axs[1,0].imshow(component_epochs, aspect='auto', cmap='jet')
+        im = axs[1,0].imshow(component_epochs, aspect='auto', cmap='jet', interpolation='none')
         axs[1,0].set_title('Component Activity')
         # axs[1,0].set_xlabel('Time (s)')
         axs[1,0].set_xticks([self.app.epochs.time_as_index(0)[0]], [''])
@@ -155,9 +155,13 @@ class MyApp(QWidget):
 
         self.show_button = QPushButton('Show', self)
         self.show_button.clicked.connect(self.show_item)
+        show_shortcut = QShortcut(QtGui.QKeySequence('s'), self)
+        show_shortcut.activated.connect(self.show_item)
 
         self.home_button = QPushButton('Home', self)  # Home button
         self.home_button.clicked.connect(self.go_home)
+        home_shortcut = QShortcut(QtGui.QKeySequence('h'), self)
+        home_shortcut.activated.connect(self.go_home)
 
         # Adding items to list
         for item in self.ica_labels:
@@ -198,6 +202,11 @@ class MyApp(QWidget):
         # Connect buttons to their respective slots
         self.button_left.clicked.connect(self.go_left)
         self.button_right.clicked.connect(self.go_right)
+
+        button_left_shortcut = QShortcut(QtGui.QKeySequence(Qt.Key_Left), self)
+        button_left_shortcut.activated.connect(self.go_left)
+        button_right_shortcut = QShortcut(QtGui.QKeySequence(Qt.Key_Right), self)
+        button_right_shortcut.activated.connect(self.go_right)
 
         # Add buttons to layout
         nav_button_layout = QHBoxLayout()
@@ -361,14 +370,16 @@ class MyApp(QWidget):
                 n_rows += 1
             return int(n_rows), int(n_cols)
         
-        fig = Figure(figsize=(10, 10), dpi=250)
+        fig = Figure(figsize=(10, 10), layout= 'constrained', dpi=250)
         fig.patch.set_facecolor(self.bg_color)
         nrows, ncols = find_cols_and_rows(self.n_components)
         axs = fig.subplots(nrows, ncols)
         for i, ax in enumerate(axs.flat):
-            self.ica.plot_components([i], axes=ax, cmap='jet', title='', show=False)
-            ax.set_title(self.ica_labels[i], fontsize=4)
-
+            if i < self.n_components:
+                self.ica.plot_components([i], axes=ax, cmap='jet', title='', show=False)
+                ax.set_title(self.ica_labels[i], fontsize=4)
+            else:
+                ax.axis('off')
         canvas = FigureCanvas(fig)     
         return canvas
 
