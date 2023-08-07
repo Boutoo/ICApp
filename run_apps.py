@@ -18,9 +18,5 @@ new_ica = ICApp(new_ica, epochs)
 # %% Check Components
 
 # Modifications:
-# Add metadata to dropped_components
-# Add ratio
-# Fix number issue
-# Fix
-# --> 367 self.ica.exclude = [int(bad_item) for bad_item in bad_items]
-# ValueError: invalid literal for int() with base 10: 'ICA003'
+# Add metadata to dropped_components?
+# Order by explained variance?

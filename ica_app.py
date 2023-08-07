@@ -80,14 +80,20 @@ class MyApp(QWidget):
         self.evoked = epochs.average()
 
         self.exclude = np.sort(self.ica.exclude).tolist()
-        self.n_components = ica.n_components_
+        self.n_components = self.ica.n_components_
         self.ica_labels = ['ICA' + str(i).zfill(3) for i in range(self.n_components)]
 
         self.returnValue = None
 
         # Get the source signals for all components
-        source_epochs = ica.get_sources(epochs)
+        source_epochs = self.ica.get_sources(epochs)
         self.source_data = source_epochs.get_data()
+
+        # Get the explained variance
+        unmixing_matrix = self.ica.unmixing_matrix_
+        explained_variance = np.var(unmixing_matrix, axis=1)
+        explained_variance_ratio = explained_variance / np.sum(explained_variance)
+        self.explained_variance_percentage = explained_variance_ratio * 100
 
         # Initialize the current page and canvas
         self.plots = [None] * self.n_components
@@ -118,6 +124,12 @@ class MyApp(QWidget):
             'axes.facecolor': self.bg_color})
 
         self.initUI()
+
+        # Make it pop up
+        self.show()
+        self.activateWindow()
+        self.raise_()
+        self.setWindowState(Qt.WindowActive)
 
     def initUI(self):
         main_layout = QHBoxLayout()
@@ -209,7 +221,7 @@ class MyApp(QWidget):
         for i, item in enumerate(self.ica_labels):
             page = QWidget()
             page_layout = QVBoxLayout()
-            label = QLabel(item)
+            label = QLabel(item + f' ({self.explained_variance_percentage[i]:.2f}%)')
             label.setAlignment(Qt.AlignCenter)
             loading_label = QLabel('Loading, please wait...')
             loading_label.setAlignment(Qt.AlignCenter)
@@ -240,7 +252,7 @@ class MyApp(QWidget):
             item = self.list1.item(i)
 
             # if the item's text is in the exclude list, move it to the 'bad' list
-            if int(item.text()[-3:])-1 in self.exclude:
+            if int(item.text()[-3:]) in self.exclude:
                 self.list1.takeItem(i)
                 list_item = QListWidgetItem(item.text())
                 list_item.setTextAlignment(Qt.AlignCenter)
@@ -252,7 +264,7 @@ class MyApp(QWidget):
 
     def go_home(self):
         self.stacked_widget.setCurrentIndex(0)
-        self.page_number_input.setText('0')
+        self.page_number_input.setText('Home')
 
     def show_item(self):
         current_widget = QApplication.focusWidget()
@@ -298,11 +310,11 @@ class MyApp(QWidget):
         page_number = int(page_number)
 
         if 0 <= page_number < self.n_components:
-            self.switch_to_page(page_number)
+            self.switch_to_page(page_number+1)
 
     def switch_to_page(self, i):
         self.stacked_widget.setCurrentIndex(i)
-        self.page_number_input.setText(str(i))
+        self.page_number_input.setText(str(i-1))
         self.switch_page_and_plot(i)
 
     def switch_page_and_plot(self, i):
@@ -364,7 +376,7 @@ class MyApp(QWidget):
         bad_items = []
         for index in range(self.list2.count()):
             bad_items.append(self.list2.item(index).text())
-        self.ica.exclude = [int(bad_item) for bad_item in bad_items]
+        self.ica.exclude = [int(bad_item[-3:]) for bad_item in bad_items]
         self.returnValue = self.ica
         event.accept()
 
