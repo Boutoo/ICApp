@@ -20,26 +20,17 @@ Make sure you have Python (version x.x or newer) and the following libraries ins
 - PyQt5 (usually shipped with mne)
 - Matplotlib (usually shipped with mne)
 
-### Running the Application
-
-Clone the repository and navigate to the project directory:
-
-\```bash
-git clone <repository-url>
-cd <project-directory>
-\```
-
 ## Usage
 
 To open the application window and view the values passed, you can call the app function with the required parameters:
 
-\```python
+```python
 from ica_app import ICApp
 epochs = mne.Epochs(...) # MNE's Epochs object
 ica = mne.preprocessing.ICA(...) # MNE's ICA object
 
 new_ica = ICApp(ica, epochs)
-\```
+```
 
 ## Contributing
 
