@@ -20,31 +20,43 @@ from mne.time_frequency import psd_array_multitaper
 class PlotThread(QThread):
     plot_created = pyqtSignal(Figure)
 
-    def __init__(self, i, app, comp):
+    def __init__(self, app, comp):
         super().__init__()
-        self.i = i
         self.app = app
         self.comp = comp
 
     def run(self):
         component_epochs = self.app.source_data[:, self.comp, :]
+        ica = self.app.ica.copy()
+        epochs = self.app.epochs.copy()
 
         fig = Figure(figsize=(15, 15), layout='tight')
         fig.patch.set_facecolor(self.app.bg_color)
         axs = fig.subplots(3,2)
 
-        # Evoked Signal (Original)
-        self.app.evoked.plot(axes=axs[0,0], show=False)
-        axs[0,0].set_title('Evoked Signal')
+        # Evoked Signal (Original)-(Droped)
+        original = np.sum(epochs.get_data()**2)
+
+        ica.apply(epochs)
+        epochs.apply_baseline(verbose=None) # ICA can introduce DC shifts
+
+        diff = self.app.epochs.get_data() - epochs.get_data()
+        diff = np.sum(diff**2)
+        var = diff/original
+
+        epochs.average().plot(axes=axs[0,0], show=False)
+        axs[0,0].set_title(f'Dataset ({1-var:.2f}%)')
 
         # Signal with ICA Component Removed
-        if self.comp not in self.app.exclude:
-            self.app.ica.exclude = self.app.exclude + [self.comp]
-        
-        cleaned_epochs = self.app.ica.apply(self.app.epochs.copy(), exclude=self.app.ica.exclude, verbose=False)
-        cleaned_evoked = cleaned_epochs.average()
-        cleaned_evoked.plot(axes=axs[0,1], show=False)
-        axs[0,1].set_title('Evoked Signal with Component ' + str(self.comp+1).zfill(2) + ' Removed')
+        epochs = self.app.epochs.copy()
+        ica.exclude += [self.comp]
+        new_epochs = ica.apply(epochs, verbose=False)
+        diff = self.app.epochs.get_data() - new_epochs.get_data()
+        diff = np.sum(diff**2)
+        var = diff/original
+        new_evoked = new_epochs.average()
+        new_evoked.plot(axes=axs[0,1], show=False)
+        axs[0,1].set_title(f'Dataset - Component {str(self.comp).zfill(2)} ({var:.2f}%)')
 
         # Trials/Epochs
         im = axs[1,0].imshow(component_epochs, aspect='auto', cmap='jet', interpolation='none')
@@ -77,6 +89,7 @@ class PlotThread(QThread):
 class MyApp(QWidget):
     def __init__(self, ica, epochs):
         super().__init__()
+        self.setWindowTitle('ICApp')
 
         # Inputs:
         self.ica = ica.copy()
@@ -93,11 +106,11 @@ class MyApp(QWidget):
         source_epochs = self.ica.get_sources(epochs)
         self.source_data = source_epochs.get_data()
 
-        # Get the explained variance
-        unmixing_matrix = self.ica.unmixing_matrix_
-        explained_variance = np.var(unmixing_matrix, axis=1)
-        explained_variance_ratio = explained_variance / np.sum(explained_variance)
-        self.explained_variance_percentage = explained_variance_ratio * 100
+        # # Get the explained variance
+        # unmixing_matrix = self.ica.unmixing_matrix_
+        # explained_variance = np.var(unmixing_matrix, axis=1)
+        # explained_variance_ratio = explained_variance / np.sum(explained_variance)
+        # self.explained_variance_percentage = explained_variance_ratio * 100
 
         # Initialize the current page and canvas
         self.plots = [None] * self.n_components
@@ -137,7 +150,7 @@ class MyApp(QWidget):
 
     def initUI(self):
         main_layout = QHBoxLayout()
-
+        
         # Left side layout
         left_layout = QVBoxLayout()
 
@@ -234,7 +247,8 @@ class MyApp(QWidget):
         for i, item in enumerate(self.ica_labels):
             page = QWidget()
             page_layout = QVBoxLayout()
-            label = QLabel(item + f' ({self.explained_variance_percentage[i]:.2f}%)')
+            label = QLabel(item)
+            # label = QLabel(item + f' ({self.explained_variance_percentage[i]:.2f}%)')
             label.setAlignment(Qt.AlignCenter)
             loading_label = QLabel('Loading, please wait...')
             loading_label.setAlignment(Qt.AlignCenter)
@@ -298,12 +312,16 @@ class MyApp(QWidget):
         if current_item is not None:
             self.list1.takeItem(self.list1.row(current_item))
             self.list2.addItem(current_item)
+            self.ica.exclude = self.get_bads()
+            self.update_plot()
 
     def move_item_to_list1(self):
         current_item = self.list2.currentItem()
         if current_item is not None:
             self.list2.takeItem(self.list2.row(current_item))
             self.list1.addItem(current_item)
+            self.ica.exclude = self.get_bads()
+            self.update_plot()
 
     def go_left(self):
         current_index = self.stacked_widget.currentIndex()
@@ -337,7 +355,7 @@ class MyApp(QWidget):
 
         # If the plot for this page hasn't been created yet, create it
         if self.plots[i-1] is None:
-            self.plot_thread = PlotThread(i, self, i-1)
+            self.plot_thread = PlotThread(self, i-1)
             self.plot_thread.plot_created.connect(self.on_plot_created)
             self.plot_thread.start()
         else:
@@ -387,13 +405,43 @@ class MyApp(QWidget):
         canvas = FigureCanvas(fig)     
         return canvas
 
-    def closeEvent(self, event):
+    def get_bads(self):
         bad_items = []
         for index in range(self.list2.count()):
             bad_items.append(self.list2.item(index).text())
-        self.ica.exclude = [int(bad_item[-3:]) for bad_item in bad_items]
+        bads = [int(bad_item[-3:]) for bad_item in bad_items]
+        return bads
+
+    def closeEvent(self, event):
+        self.ica.exclude = self.get_bads()
         self.returnValue = self.ica
         event.accept()
+
+    def update_plot(self):
+        # Clear the current plot
+        if self.current_canvas is not None:
+            # Redraw the plot
+            current_index = self.stacked_widget.currentIndex()
+            self.plot_thread = PlotThread(self, current_index-1)
+            self.plot_thread.plot_created.connect(self.on_plot_update)
+            self.plot_thread.start()
+
+    @pyqtSlot(Figure)
+    def on_plot_update(self, fig):
+        idx = self.stacked_widget.currentIndex()
+        canvas = self.plots[idx-1]
+        # Remove the old canvas from the layout
+        self.stacked_widget.widget(idx).layout().removeWidget(canvas)
+        canvas.deleteLater()
+        canvas = None
+        canvas = FigureCanvas(fig)
+
+        # Create a new canvas with the new figure
+        self.plots[idx-1] = canvas
+        self.stacked_widget.widget(idx).layout().addWidget(self.plots[idx-1])
+        
+        self.current_page = idx
+        self.current_canvas = self.plots[idx-1]
 
 qt_app = None
 def ICApp(ica, epochs):
