@@ -3,8 +3,8 @@
 # ICApp: An application for visualizing and selecting ICA components.
 
 from PyQt5 import QtGui
-from PyQt5.QtWidgets import QApplication, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QStackedWidget, QLabel, QListWidget, QListWidgetItem, QLineEdit, QShortcut, QSplitter
-from PyQt5.QtCore import pyqtSlot, Qt, QThread, pyqtSignal
+from PyQt5.QtWidgets import QApplication, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QStackedWidget, QLabel, QListWidget, QListWidgetItem, QLineEdit, QShortcut, QFileDialog
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -329,11 +329,10 @@ class MyApp(QWidget):
             self.list1.addItem(list_item1)
 
         # Buttons
-        self.home_button = self.create_button('Home', 'h', self.go_home)
-        self.show_button = self.create_button('Show', 's', self.show_item)
-        button_layout = QHBoxLayout()
-        for widget in [self.home_button, self.show_button]:
-            button_layout.addWidget(widget)
+        self.home_button = self.create_button('Home', self.go_home, 'H', 'Go to the overview page\n(Shortcut: H)')
+        self.show_button = self.create_button('Show', self.show_item, 'S', 'Show the selected component\n(Shortcut: S)')
+        self.save_ica_button = self.create_button('Save ICA', self.save_ica, 'Ctrl+S', 'Save the ICA object\n(Shortcut: Ctrl+S)')
+        self.save_figure_button = self.create_button('Save Figure', self.save_figure, 'Ctrl+Shift+S', 'Save the current figure\n(Shortcut: Ctrl+Shift+S)')
 
         # Watermark
         watermark = QLabel("Couto, B.A.N. ICApp (2023).", self)
@@ -341,7 +340,17 @@ class MyApp(QWidget):
         watermark.setAlignment(Qt.AlignCenter | Qt.AlignBottom)
 
         # Add widgets to left layout
-        widgets = [self.good_label, self.list1, button_layout, self.bad_label, self.list2, watermark]
+        widgets = [
+            self.good_label,
+            self.list1,
+            self.bad_label,
+            self.list2,
+            self.home_button,
+            self.show_button,
+            self.save_ica_button,
+            self.save_figure_button,
+            watermark]
+        
         for w in widgets:
             if isinstance(w, QWidget):
                 w.setMaximumWidth(150)
@@ -355,8 +364,8 @@ class MyApp(QWidget):
         right_layout = QVBoxLayout()
 
         # Navigation buttons
-        self.button_left = self.create_button('<', Qt.Key_Left, self.go_left)
-        self.button_right = self.create_button('>', Qt.Key_Right, self.go_right)
+        self.button_left = self.create_button('<', self.go_left, QtGui.QKeySequence(Qt.CTRL + Qt.Key_Left), 'Go to the previous page\n(Shortcut: Ctrl+Left)')
+        self.button_right = self.create_button('>', self.go_right, QtGui.QKeySequence(Qt.CTRL + Qt.Key_Right), 'Go to the next page\n(Shortcut: Ctrl+Right)')
 
         # Number input
         self.page_number_input = QLineEdit(self)
@@ -410,10 +419,13 @@ class MyApp(QWidget):
         page.setLayout(page_layout)
         return page, label, fig, canvas
 
-    def create_button(self, text, shortcut, slot):
+    def create_button(self, text, slot, shortcut=None, tooltip=None):
         btn = QPushButton(text, self)
         btn.clicked.connect(slot)
-        QShortcut(QtGui.QKeySequence(shortcut), self).activated.connect(slot)
+        if shortcut is not None:
+            QShortcut(QtGui.QKeySequence(shortcut), self).activated.connect(slot)
+        if tooltip is not None:
+            btn.setToolTip(tooltip)
         return btn
 
     def create_centered_label(self, text):
@@ -550,6 +562,27 @@ class MyApp(QWidget):
             'ytick.color': self.text_color,
             'figure.facecolor': self.bg_color,
             'axes.facecolor': self.bg_color})
+
+    def save_figure(self):
+        # Get Index
+        index = self.stacked_widget.currentIndex()
+        print(f'Saving figure ({index})')
+
+        # Get the current figure and canvas
+        fig = self.figures[index]
+
+        # Save the figure
+        options = QFileDialog.Options()
+        fileName, _ = QFileDialog.getSaveFileName(self, "Save Figure", "", "PNG Files (*.png);;JPEG Files (*.jpg);; SVG Files (*.svg);;All Files (*)", options=options)
+        if fileName:
+            fig.savefig(fileName)
+
+    def save_ica(self):
+        # Save the figure
+        options = QFileDialog.Options()
+        fileName, _ = QFileDialog.getSaveFileName(self, "Save ICA", "", "ICA Files (*-ica.fif);;;;All Files (*)", options=options)
+        if fileName:
+            self.ica.save(fileName+'-ica.fif')
 
     def closeEvent(self, event):
         plt.close('all')
