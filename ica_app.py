@@ -179,20 +179,20 @@ class WorkerThread(QThread):
             ]
 
             # Trials/Epochs
-            im = axs[2].imshow(component_epochs, aspect='auto', cmap='jet', interpolation='none')
+            im = axs[2].imshow(component_epochs, aspect='auto', cmap='jet')
             axs[2].set_title('Component Activity')
             axs[2].set_xticks([epochs.time_as_index(0)[0]], [''])
             axs[2].set_ylabel('Trial')
 
             # PSD
-            f1, f2 = self.app.parameters['spectrum_freqs']
+            f1, f2 = self.app.parameters['psd_freqs']
             if f1 is None:
                 f1 = 1
             if f2 is None:
                 f2 = 50
             spec, freqs = mne.time_frequency.psd_array_multitaper(component_epochs, sfreq=epochs.info['sfreq'], fmin=f1, fmax=f2, verbose=False)
             spec = 10 * np.log10(spec)
-            axs[3].plot(freqs, np.mean(spec, axis=0))
+            axs[3].plot(freqs, np.mean(spec, axis=0), linewidth=1.5)
             axs[3].set_xlim([f1, f2])
             axs[3].set_title('Power Spectrum')
             axs[3].set_xlabel('Frequency (Hz)')
@@ -200,17 +200,24 @@ class WorkerThread(QThread):
 
             # Average
             mean_activity = np.mean(component_epochs, axis=0)
-            axs[4].plot(epochs.times, mean_activity)
+            axs[4].plot(epochs.times, mean_activity, linewidth=1.5)
             axs[4].set_xlim([epochs.times[0], epochs.times[-1]])
             axs[4].set_title('Average Activity')
             axs[4].set_xlabel('Time (s)')
             axs[4].set_ylabel('Amplitude')
 
             # Topo
-            ica.plot_components([comp], axes=axs[5], cmap='jet', title='', show=False)
+            ica.plot_components([comp],
+                                axes=axs[5],
+                                cmap='jet',
+                                title='',
+                                # image_interp='nearest',
+                                show=False)
             axs[5].set_title('Topography')
         
         # Always Update the Evoked Plots
+        # axs[0].cla()
+        # axs[1].cla()
 
         # Evoked Signal (Original)-(Droped)
         original = np.sum(epochs.get_data()**2)
@@ -232,7 +239,6 @@ class WorkerThread(QThread):
         var = 100 * (after_removal/original)
         epochs.average().plot(axes=axs[1], show=False)
         axs[1].set_title(f'Dataset - ICA{str(comp).zfill(3)} ({var:.2f}%)')
-
         return
 
 class BlockingDialog(QDialog):
@@ -264,7 +270,7 @@ class MyApp(QWidget):
 
         # User Parameters
         self.parameters = {
-            'spectrum_freqs': [None, None],
+            'psd_freqs': [None, None],
         }
         if parameters is not None:
             self.parameters.update(parameters)
@@ -296,7 +302,8 @@ class MyApp(QWidget):
         self.activateWindow()
         self.raise_()
         self.setWindowState(Qt.WindowActive)
-
+        self.showMaximized()
+        
         # Request Update
         self.request_update()
         
@@ -513,8 +520,6 @@ class MyApp(QWidget):
         print(f'Updating plot ({index})')
         canvas = self.canvases[index]
         canvas.draw()
-
-        print('Done: ' + str(data['done']))
 
     def get_bads(self):
         bad_items = []
