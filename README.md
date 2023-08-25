@@ -23,14 +23,14 @@ Make sure you have Python (>3.11) and the following libraries installed:
 
 ## Usage
 
-To open the application window and view the values passed, you can call the app function with the required parameters:
+To open the application window, you can call the app function with the required parameters:
 
 ```python
 from ica_app import ICApp
-epochs = mne.Epochs(...) # MNE's Epochs object
-ica = mne.preprocessing.ICA(...) # MNE's ICA object
+epochs = mne.Epochs(...) # Your MNE's Epochs object
+ica = mne.preprocessing.ICA(...) # Your MNE's ICA object
 
-new_ica = ICApp(ica, epochs)
+new_ica = ICApp(ica, epochs) # When closing the app, you can keep the modified ICA object on new_ica
 ```
 
 ## Contributing
