@@ -1,6 +1,6 @@
 # Author: Couto, B.A.N.
 # Date: August 2023
-# Basic TMS EEG Preprocessing Toolbox
+# ICA Application for MNE-Python
 
 # %% Imports
 import mne

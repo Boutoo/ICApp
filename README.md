@@ -33,6 +33,12 @@ ica = mne.preprocessing.ICA(...) # Your MNE's ICA object
 new_ica = ICApp(ica, epochs) # When closing the app, you can keep the modified ICA object on new_ica
 ```
 
+## Application
+
+If everything went smooth, the application window should look like this:
+![ICAppImage](ICApp.png "ICApp Window")
+
+
 ## Contributing
 
 If you would like to contribute, please fork the repository and use a feature branch. Pull requests and issues descriptions are warmly welcome.
