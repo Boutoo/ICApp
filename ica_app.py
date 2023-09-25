@@ -80,6 +80,10 @@ class ICAWorkerThread(QThread):
                             return int(rows), int(cols)
             rows, cols = optimal_subplot_grid(self.app.n_components)
             
+            if rows > 5:
+                rows = 5
+                cols = int(np.ceil(self.app.n_components / rows))
+
             gs = gridspec.GridSpec(3 * rows, cols, fig)  # 3 rows per component
 
             for i in range(self.app.n_components):
@@ -107,9 +111,12 @@ class ICAWorkerThread(QThread):
                 # Plot your time series data here. For the sake of this example, I'm using random data
                 component_epochs = sources[:, i, :]
                 mean_activity = np.mean(component_epochs, axis=0)
-                ax_time.axvline(0, color=self.app.text_color, linestyle='--', alpha=0.5)  # Add a vertical line at time 0
+                ax_time.axvline(0, color='k', linestyle='--', alpha=0.5)  # Add a vertical line at time 0
                 ax_time.plot(self.app.epochs.times, mean_activity)
-                ax_time.set_xlim([self.app.epochs.times[0], self.app.epochs.times[-1]])  # Set your x-limits
+                t0, t1 = self.app.parameters['overview_avg_xlim'][0], self.app.parameters['overview_avg_xlim'][1]
+                t0 = [self.app.epochs.times[0] if t0 is None else self.app.epochs.times[self.app.epochs.time_as_index(t0)]][0]
+                t1 = [self.app.epochs.times[-1] if t1 is None else self.app.epochs.times[self.app.epochs.time_as_index(t1)]][0]
+                ax_time.set_xlim([t0, t1])  # Set your x-limits
                 ax_time.set_xticks([],[])
                 ax_time.set_yticks([],[])
                 ax_time.set_facecolor((1,1,1,self.app.parameters['bg_alpha']))  # Set the background color to white
@@ -260,7 +267,8 @@ class ICA_Application(QWidget):
                  apply_baseline = True,
                  psd_xlim = [None, None],
                  interactive_butterfly = True,
-                 bg_alpha=0.5):
+                 overview_avg_xlim = [None, None],
+                 bg_alpha=1):
         super().__init__()
         self.setWindowTitle('ICApp')
 
@@ -285,7 +293,8 @@ class ICA_Application(QWidget):
             'cmap': cmap,
             'psd_xlim': psd_xlim,
             'interactive_butterfly': interactive_butterfly,
-            'bg_alpha': bg_alpha
+            'bg_alpha': bg_alpha,
+            'overview_avg_xlim': overview_avg_xlim,
         }
 
         # Get the source signals for all components
@@ -539,11 +548,11 @@ class ICA_Application(QWidget):
         page_number = int(page_number)
 
         if 0 <= page_number < self.n_components:
-            self.switch_to_page(page_number + 1)
+            self.switch_to_page(page_number)
 
     def switch_to_page(self, i):
         self.stacked_widget.setCurrentIndex(i)
-        self.page_number_input.setText(str(i-1))
+        self.page_number_input.setText(str(i))
         self.current_page = i
         if i == 0:
             self.button_left.setEnabled(False)
@@ -668,7 +677,8 @@ def ICApp(ica, epochs,
           cmap='turbo',
           apply_baseline = True,
           psd_xlim = [None, None],
-          interactive_butterfly = True):
+          interactive_butterfly = True,
+          overview_avg_xlim = [None, None]):
     global qt_app
 
     if qt_app is None:
@@ -679,7 +689,8 @@ def ICApp(ica, epochs,
                          cmap=cmap,
                          apply_baseline=apply_baseline,
                          psd_xlim=psd_xlim,
-                         interactive_butterfly=interactive_butterfly)
+                         interactive_butterfly=interactive_butterfly,
+                         overview_avg_xlim=overview_avg_xlim)
     ex.show()
 
     try:
