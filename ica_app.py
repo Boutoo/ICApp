@@ -1,5 +1,5 @@
 # Author: Couto, B.A.N.
-# Date: September 2023
+# Date: August 2023
 # ICA Application for MNE-Python
 
 # %% Imports
@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QDialog, QVBoxLayout, QHBoxLa
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
 # %% Applications Classes
+qt_app = None # Global variable to store the Qt Application
 class ICAWorkerThread(QThread):
     finished_signal = pyqtSignal(dict)
 
@@ -36,7 +37,6 @@ class ICAWorkerThread(QThread):
 
         # Get the current figure and canvas
         fig = self.app.figures[index]
-        canvas = self.app.canvases[index]
 
         if index == 0:
             self.plot_overview(fig)
@@ -91,7 +91,7 @@ class ICAWorkerThread(QThread):
                 mne.viz.plot_topomap(components[:, i],
                                      new_info,
                                      axes=ax_topo,
-                                     cmap='jet',
+                                     cmap=self.app.parameters['cmap'],
                                      show=False)
                 
                 color = self.app.text_color
@@ -150,7 +150,9 @@ class ICAWorkerThread(QThread):
             ]
 
             # Trials/Epochs
-            im = axs[2].imshow(component_epochs, aspect='auto', cmap='jet')
+            im = axs[2].imshow(component_epochs,
+                               aspect='auto',
+                               cmap=self.app.parameters['cmap'])
             axs[2].set_title('Component Activity')
             axs[2].set_xticks([epochs.time_as_index(0)[0]], [''])
             axs[2].set_ylabel('Trial')
@@ -180,46 +182,66 @@ class ICAWorkerThread(QThread):
             # Topo
             ica.plot_components([comp],
                                 axes=axs[5],
-                                cmap='jet',
+                                cmap=self.app.parameters['cmap'],
                                 title='',
                                 # image_interp='nearest',
                                 show=False)
             axs[5].set_title('Topography')
+
+            # Noting that the figure is not empty anymore
+            self.app.figure_is_empty[comp+1] = False
         
-        # Always Update the Evoked Plots
-        # axs[0].cla()
-        # axs[1].cla()
-
-        # Evoked Signal (Original)-(Droped)
-        original = np.sum(epochs.get_data()**2)
-
-        ica.apply(epochs, verbose=False)
-        epochs.apply_baseline(verbose=None) # ICA can introduce DC shifts
-
-        after_removal = np.sum(epochs.get_data()**2)
-        var = 100 * (after_removal/original)
-
-        if self.app.parameters['interactive_butterfly']:
-            epochs.average().plot(axes=axs[0], show=False)
-        else:
-            axs[0].plot(epochs.times, epochs.average().data.T, linewidth=1.5)
-            axs[0].set_xlim([epochs.times[0], epochs.times[-1]])
+        # Dataset Evoked Signal (Original)-(Droped)
+        if self.app.changing_component is not None or not np.any(self.app.dataset_is_updated): # Update Dataset Evoked Signal if Needed 
+            self.app.clear_epochs, self.app.clear_var = self.apply_dropping()
+            self.app.dataset_is_updated = [False] * (self.app.n_components)
+            self.app.component_is_updated = [False] * (self.app.n_components)
+            if self.app.changing_component == comp:
+                self.app.component_is_updated[comp] = True
         
-        axs[0].set_title(f'Dataset ({var:.2f}%)')
+        if not self.app.dataset_is_updated[comp]:
+            ax = fig.axes[0]
+            # Display Dataset Evoked Signal
+            if self.app.parameters['interactive_butterfly']:
+                self.app.clear_epochs.average().plot(axes=ax, show=False)
+            else:
+                ax.plot(self.app.clear_epochs.times, self.app.clear_epochs.average().data.T, linewidth=1.5)
+                ax.set_xlim([self.app.clear_epochs.times[0], self.app.clear_epochs.times[-1]])
+            
+            ax.set_title(f'Dataset ({self.app.clear_var:.2f}%)')
 
         # Signal with Current ICA Component Removed
-        epochs = self.app.epochs.copy()
-        ica.exclude += [comp]
-        epochs = ica.apply(epochs, verbose=False)
-        after_removal = np.sum(epochs.get_data()**2)
-        var = 100 * (after_removal/original)
-        if self.app.parameters['interactive_butterfly']:
-            epochs.average().plot(axes=axs[1], show=False)
-        else:
-            axs[1].plot(epochs.times, epochs.average().data.T, linewidth=1.5)
-            axs[1].set_xlim([epochs.times[0], epochs.times[-1]])
-        axs[1].set_title(f'Dataset - ICA{str(comp).zfill(3)} ({var:.2f}%)')
+        if not self.app.component_is_updated[comp]:
+            new_epochs, new_var = self.apply_dropping(comp)
+            ax = fig.axes[1]
+            if self.app.parameters['interactive_butterfly']:
+                new_epochs.average().plot(axes=ax, show=False)
+            else:
+                ax.plot(new_epochs.times, new_epochs.average().data.T, linewidth=1.5)
+                ax.set_xlim([new_epochs.times[0], new_epochs.times[-1]])
+            ax.set_title(f'Dataset - ICA{str(comp).zfill(3)} ({new_var:.2f}%)')
+        
+        self.app.changing_component = None
+        self.app.dataset_is_updated[comp] = True
+        self.app.component_is_updated[comp] = True
         return
+
+    def apply_dropping(self, new_exclude = None):
+        # Get data
+        epochs = self.app.epochs.copy()
+        ica = self.app.ica.copy()
+
+        if new_exclude is not None:
+            ica.exclude += [new_exclude]
+
+        # Calculate New Explained Variance
+        ica.apply(epochs, verbose=False)
+        epochs.apply_baseline(verbose=None) # ICA can introduce DC shifts
+        after_removal = np.sum(epochs.get_data()**2)
+
+        var = 100 * (after_removal/self.app.original_explained_variance)
+
+        return epochs, var
 
 class ICABlockingDialog(QDialog):
     def __init__(self, parent=None):
@@ -231,6 +253,7 @@ class ICABlockingDialog(QDialog):
 
 class ICA_Application(QWidget):
     def __init__(self, ica, epochs,
+                 cmap='jet',
                  apply_baseline = True,
                  psd_xlim = [None, None],
                  interactive_butterfly = True):
@@ -248,12 +271,14 @@ class ICA_Application(QWidget):
         self.exclude = np.sort(self.ica.exclude).tolist()
         self.n_components = self.ica.n_components_
         self.ica_labels = ['ICA' + str(i).zfill(3) for i in range(self.n_components)]
+        self.original_explained_variance = np.sum(epochs.get_data()**2)
 
         # Return value
         self.returnValue = None
 
         # User Parameters
         self.parameters = {
+            'cmap': cmap,
             'psd_xlim': psd_xlim,
             'interactive_butterfly': interactive_butterfly
         }
@@ -261,6 +286,11 @@ class ICA_Application(QWidget):
         # Get the source signals for all components
         source_epochs = self.ica.get_sources(epochs)
         self.source_data = source_epochs.get_data()
+
+        # Plot Control
+        self.dataset_is_updated = [False] * (self.n_components)
+        self.component_is_updated = [False] * (self.n_components)
+        self.changing_component = None
 
         # Setting Parameters to Plot Styles and Colors
         self.plot_style_and_colors()
@@ -453,7 +483,8 @@ class ICA_Application(QWidget):
             self.list1.takeItem(self.list1.row(current_item))
             self.list2.addItem(current_item)
             self.ica.exclude = self.get_bads()
-            # self.request_update()
+            self.changing_component = int(current_item.text()[-3:])
+            self.request_update()
 
     def move_item_to_list1(self):
         current_item = self.list2.currentItem()
@@ -461,7 +492,8 @@ class ICA_Application(QWidget):
             self.list2.takeItem(self.list2.row(current_item))
             self.list1.addItem(current_item)
             self.ica.exclude = self.get_bads()
-            # self.request_update()
+            self.changing_component = int(current_item.text()[-3:])
+            self.request_update()
 
     def go_left(self):
         current_index = self.stacked_widget.currentIndex()
@@ -572,7 +604,7 @@ class ICA_Application(QWidget):
         if fileName:
             if not fileName.endswith('-ica.fif'):
                 fileName += '-ica.fif'
-            self.ica.save(fileName)
+            self.ica.save(fileName, overwrite=True)
 
     def closeEvent(self, event):
         plt.close('all')
@@ -580,8 +612,9 @@ class ICA_Application(QWidget):
         self.returnValue = self.ica
         event.accept()
 
-# %% Application Call:
+# %% Application Calls:
 def ICApp(ica, epochs,
+          cmap='jet',
           apply_baseline = True,
           psd_xlim = [None, None],
           interactive_butterfly = True):
@@ -591,6 +624,7 @@ def ICApp(ica, epochs,
         qt_app = QApplication(sys.argv)
 
     ex = ICA_Application(ica, epochs,
+                         cmap=cmap,
                          apply_baseline=apply_baseline,
                          psd_xlim=psd_xlim,
                          interactive_butterfly=interactive_butterfly)
