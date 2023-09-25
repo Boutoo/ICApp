@@ -110,7 +110,9 @@ class ICAWorkerThread(QThread):
                 ax_time.axvline(0, color=self.app.text_color, linestyle='--', alpha=0.5)  # Add a vertical line at time 0
                 ax_time.plot(self.app.epochs.times, mean_activity)
                 ax_time.set_xlim([self.app.epochs.times[0], self.app.epochs.times[-1]])  # Set your x-limits
-                ax_time.axis('off')  # Turn off the axis to make it look nicer
+                ax_time.set_xticks([],[])
+                ax_time.set_yticks([],[])
+                ax_time.set_facecolor((1,1,1,self.app.parameters['bg_alpha']))  # Set the background color to white
 
             self.app.figure_is_empty[0] = False
 
@@ -201,19 +203,20 @@ class ICAWorkerThread(QThread):
         
         if not self.app.dataset_is_updated[comp]:
             ax = fig.axes[0]
+            ax.clear()
             # Display Dataset Evoked Signal
             if self.app.parameters['interactive_butterfly']:
                 self.app.clear_epochs.average().plot(axes=ax, show=False)
             else:
                 ax.plot(self.app.clear_epochs.times, self.app.clear_epochs.average().data.T, linewidth=1.5)
                 ax.set_xlim([self.app.clear_epochs.times[0], self.app.clear_epochs.times[-1]])
-            
             ax.set_title(f'Dataset ({self.app.clear_var:.2f}%)')
 
         # Signal with Current ICA Component Removed
         if not self.app.component_is_updated[comp]:
             new_epochs, new_var = self.apply_dropping(comp)
             ax = fig.axes[1]
+            ax.clear()
             if self.app.parameters['interactive_butterfly']:
                 new_epochs.average().plot(axes=ax, show=False)
             else:
@@ -256,7 +259,8 @@ class ICA_Application(QWidget):
                  cmap='jet',
                  apply_baseline = True,
                  psd_xlim = [None, None],
-                 interactive_butterfly = True):
+                 interactive_butterfly = True,
+                 bg_alpha=0.5):
         super().__init__()
         self.setWindowTitle('ICApp')
 
@@ -270,7 +274,7 @@ class ICA_Application(QWidget):
         # Get Main Parameters:
         self.exclude = np.sort(self.ica.exclude).tolist()
         self.n_components = self.ica.n_components_
-        self.ica_labels = ['ICA' + str(i).zfill(3) for i in range(self.n_components)]
+        self.ica_labels = ['Component ' + str(i).zfill(3) for i in range(1, self.n_components+1)]
         self.original_explained_variance = np.sum(epochs.get_data()**2)
 
         # Return value
@@ -280,7 +284,8 @@ class ICA_Application(QWidget):
         self.parameters = {
             'cmap': cmap,
             'psd_xlim': psd_xlim,
-            'interactive_butterfly': interactive_butterfly
+            'interactive_butterfly': interactive_butterfly,
+            'bg_alpha': bg_alpha
         }
 
         # Get the source signals for all components
@@ -333,12 +338,18 @@ class ICA_Application(QWidget):
         # Set the layout
         self.setLayout(main_layout)
 
+        # Set buttons starting state
+        self.button_left.setEnabled(False)
+        self.button_left.setText('Overview')
+        self.button_right.setText('Single Component Vizualization')
+        self.button_right.setToolTip('Go to single component vizualization')
+
     def setup_left_layout(self):
         left_layout = QVBoxLayout()
 
         # Labels
-        self.good_label = self.create_centered_label('Use Components')
-        self.bad_label = self.create_centered_label('Remove Components')
+        self.good_label = self.create_centered_label('Kept Components')
+        self.bad_label = self.create_centered_label('Removed Components')
 
         # List widgets
         self.list1 = self.create_list_widget(self.move_item_to_list2)
@@ -349,8 +360,9 @@ class ICA_Application(QWidget):
             self.list1.addItem(list_item1)
 
         # Buttons
-        self.home_button = self.create_button('Home', self.go_home, 'H', 'Go to the overview page\n(Shortcut: H)')
-        self.show_button = self.create_button('Show', self.show_item, 'S', 'Show the selected component\n(Shortcut: S)')
+        self.change_component_button = self.create_button('Remove/Restore [R]', self.change_item, 'R', 'Drop/Restore the selected component\n(Shortcut: R)')
+        self.home_button = self.create_button('Home [H]', self.go_home, 'H', 'Go to the overview page\n(Shortcut: H)')
+        self.show_button = self.create_button('Show [S]', self.show_item, 'S', 'Show the selected component\n(Shortcut: S)')
         self.save_ica_button = self.create_button('Save ICA', self.save_ica, 'Ctrl+S', 'Save the ICA object\n(Shortcut: Ctrl+S)')
         self.save_figure_button = self.create_button('Save Figure', self.save_figure, 'Ctrl+Shift+S', 'Save the current figure\n(Shortcut: Ctrl+Shift+S)')
 
@@ -365,6 +377,7 @@ class ICA_Application(QWidget):
             self.list1,
             self.bad_label,
             self.list2,
+            self.change_component_button,
             self.home_button,
             self.show_button,
             self.save_ica_button,
@@ -477,13 +490,26 @@ class ICA_Application(QWidget):
             except ValueError:
                 pass
 
+    def change_item(self):
+        current_widget = QApplication.focusWidget()
+        current_item = None
+
+        if current_widget in [self.list1, self.list2] and current_widget.selectedItems():
+            current_item = current_widget.selectedItems()[0]
+
+        if current_item is not None:
+            if current_widget == self.list1:
+                self.move_item_to_list2()
+            else:
+                self.move_item_to_list1()
+
     def move_item_to_list2(self):
         current_item = self.list1.currentItem()
         if current_item is not None:
             self.list1.takeItem(self.list1.row(current_item))
             self.list2.addItem(current_item)
             self.ica.exclude = self.get_bads()
-            self.changing_component = int(current_item.text()[-3:])
+            self.changing_component = int(current_item.text()[-3:])-1
             self.request_update()
 
     def move_item_to_list1(self):
@@ -492,7 +518,7 @@ class ICA_Application(QWidget):
             self.list2.takeItem(self.list2.row(current_item))
             self.list1.addItem(current_item)
             self.ica.exclude = self.get_bads()
-            self.changing_component = int(current_item.text()[-3:])
+            self.changing_component = int(current_item.text()[-3:])-1
             self.request_update()
 
     def go_left(self):
@@ -519,6 +545,31 @@ class ICA_Application(QWidget):
         self.stacked_widget.setCurrentIndex(i)
         self.page_number_input.setText(str(i-1))
         self.current_page = i
+        if i == 0:
+            self.button_left.setEnabled(False)
+            self.button_left.setText('Overview')
+            self.button_right.setText('Single Component Vizualization')
+            self.button_right.setToolTip('Go to single component vizualization')
+        elif i==1:
+            self.button_left.setEnabled(True)
+            self.button_left.setText('Overview')
+            self.button_left.setToolTip('Go to the overview component')
+            self.button_right.setEnabled(True)
+            self.button_right.setText('Next >')
+            self.button_right.setToolTip('Go to the next component')
+        elif i==self.n_components:
+            self.button_left.setEnabled(True)
+            self.button_left.setText('< Previous')
+            self.button_left.setToolTip('Go to the previous component')
+            self.button_right.setEnabled(False)
+            self.button_right.setText('Last Component')
+        else:
+            self.button_left.setEnabled(True)
+            self.button_left.setText('< Previous')
+            self.button_left.setToolTip('Go to the previous component')
+            self.button_right.setEnabled(True)
+            self.button_right.setText('Next >')
+            self.button_right.setToolTip('Go to the next component')
         self.request_update()
 
     def request_update(self):
@@ -529,7 +580,7 @@ class ICA_Application(QWidget):
         self.thread.start()
         self.dialog.exec_()
 
-    def update_plot(self, data):
+    def update_plot(self):
         # Get Index
         index = self.stacked_widget.currentIndex()
         # print(f'Updating plot ({index})')
@@ -540,7 +591,7 @@ class ICA_Application(QWidget):
         bad_items = []
         for index in range(self.list2.count()):
             bad_items.append(self.list2.item(index).text())
-        bads = [int(bad_item[-3:]) for bad_item in bad_items]
+        bads = [int(bad_item[-3:])-1 for bad_item in bad_items]
         return bads
 
     def exclude_items(self):
@@ -549,7 +600,7 @@ class ICA_Application(QWidget):
             item = self.list1.item(i)
 
             # if the item's text is in the exclude list, move it to the 'bad' list
-            if int(item.text()[-3:]) in self.exclude:
+            if int(item.text()[-3:])-1 in self.exclude:
                 self.list1.takeItem(i)
                 list_item = QListWidgetItem(item.text())
                 list_item.setTextAlignment(Qt.AlignCenter)
@@ -571,17 +622,17 @@ class ICA_Application(QWidget):
             'font.family': 'sans-serif',
             'font.sans-serif': 'Arial',
             'font.size': 8,
-            'axes.titlesize': 8,
-            'axes.labelsize': 6,
-            'xtick.labelsize': 5,
-            'ytick.labelsize': 5,
+            'axes.titlesize': 10,
+            'axes.labelsize': 8,
+            'xtick.labelsize': 8,
+            'ytick.labelsize': 8,
             'text.color': self.text_color,
             'axes.labelcolor': self.text_color,
             'axes.edgecolor': self.text_color,
             'xtick.color': self.text_color,
             'ytick.color': self.text_color,
             'figure.facecolor': self.bg_color,
-            'axes.facecolor': self.bg_color})
+            'axes.facecolor': (1,1,1,self.parameters['bg_alpha'])})
 
     def save_figure(self):
         # Get Index
@@ -614,7 +665,7 @@ class ICA_Application(QWidget):
 
 # %% Application Calls:
 def ICApp(ica, epochs,
-          cmap='jet',
+          cmap='turbo',
           apply_baseline = True,
           psd_xlim = [None, None],
           interactive_butterfly = True):
@@ -623,6 +674,7 @@ def ICApp(ica, epochs,
     if qt_app is None:
         qt_app = QApplication(sys.argv)
 
+    print('Running ICApp...')
     ex = ICA_Application(ica, epochs,
                          cmap=cmap,
                          apply_baseline=apply_baseline,
