@@ -1,24 +1,28 @@
-# This application is still under development.
-# Author: Couto, B.A.N. (2023)
-# ICApp: An application for visualizing and selecting ICA components.
+# Author: Couto, B.A.N.
+# Date: August 2023
+# Basic TMS EEG Preprocessing Toolbox
 
-from PyQt5 import QtGui
-from PyQt5.QtWidgets import QApplication, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QStackedWidget, QLabel, QListWidget, QListWidgetItem, QLineEdit, QShortcut, QFileDialog
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+# %% Imports
+import mne
+import numpy as np
+import sys
 
+# Plots
+import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import seaborn as sns
 sns.set_theme('paper', 'whitegrid', 'deep')
 
-import sys
-import numpy as np
-import mne
-from mne.time_frequency import psd_array_multitaper
+# Qt5 Imports
+from PyQt5 import QtGui
+from PyQt5.QtWidgets import QApplication, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QStackedWidget, QLabel, QListWidget, QListWidgetItem, QLineEdit, QShortcut, QFileDialog
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
-class WorkerThread(QThread):
+# %% Applications Classes
+qt_app = None # Global variable to store the Qt Application
+class ICAWorkerThread(QThread):
     finished_signal = pyqtSignal(dict)
 
     def __init__(self, app):
@@ -28,7 +32,7 @@ class WorkerThread(QThread):
     def run(self):
         # Get Index
         index = self.app.stacked_widget.currentIndex()
-        print(f'Running thread ({index})')
+        # print(f'Running thread ({index})')
 
         # Get the current figure and canvas
         fig = self.app.figures[index]
@@ -55,6 +59,81 @@ class WorkerThread(QThread):
             ch_names = [ch for ch in ch_names if ch not in bad_channels]
             new_info = mne.create_info(ch_names, self.app.epochs.info['sfreq'], ch_types='eeg')
             new_info.set_montage(self.app.epochs.get_montage())
+
+            sources = self.app.source_data
+
+            def optimal_subplot_grid(N):
+                            # Find the square root of N to start approximating the grid
+                            sqrt_N = np.sqrt(N)
+
+                            # If N is a perfect square, use that as the grid dimensions
+                            if sqrt_N == int(sqrt_N):
+                                return int(sqrt_N), int(sqrt_N)
+
+                            # Get the column count by rounding up the square root
+                            cols = np.ceil(sqrt_N)
+
+                            # Compute the required rows given the column count
+                            rows = N // cols
+                            if N % cols != 0:
+                                rows += 1
+
+                            return int(rows), int(cols)
+            rows, cols = optimal_subplot_grid(self.app.n_components)
+            
+            gs = gridspec.GridSpec(3 * rows, cols, fig)  # 3 rows per component
+
+            for i in range(self.app.n_components):
+                row_idx = i // cols
+                col_idx = i % cols
+                
+                # Create the topomap axis using GridSpec
+                ax_topo = fig.add_subplot(gs[3*row_idx:3*row_idx+2, col_idx])
+                mne.viz.plot_topomap(components[:, i],
+                                     new_info,
+                                     axes=ax_topo,
+                                     cmap='jet',
+                                     show=False)
+                
+                color = self.app.text_color
+                if i-1 in self.app.exclude:
+                    color = 'red'
+                ax_topo.set_title(self.app.ica_labels[i],
+                             fontsize=8,
+                             color=color)
+
+                # Create the time series axis right below the topomap using GridSpec
+                ax_time = fig.add_subplot(gs[3*row_idx+2, col_idx])
+                
+                # Plot your time series data here. For the sake of this example, I'm using random data
+                component_epochs = sources[:, i, :]
+                mean_activity = np.mean(component_epochs, axis=0)
+                ax_time.axvline(0, color=self.app.text_color, linestyle='--', alpha=0.5)  # Add a vertical line at time 0
+                ax_time.plot(self.app.epochs.times, mean_activity)
+                ax_time.set_xlim([self.app.epochs.times[0], self.app.epochs.times[-1]])  # Set your x-limits
+                ax_time.axis('off')  # Turn off the axis to make it look nicer
+
+            self.app.figure_is_empty[0] = False
+
+        else:
+            axs = fig.axes
+            for i in range(self.app.n_components):
+                color = self.app.text_color
+                if i in self.app.ica.exclude:
+                    color = 'red'
+                axs[i*2].set_title(self.app.ica_labels[i],
+                                   fontsize=8,
+                                   color=color)
+        return
+
+    def plot_overview_OLD(self, fig):
+        if self.app.figure_is_empty[0]:
+            components = self.app.ica.get_components()
+            bad_channels = self.app.epochs.info['bads']
+            ch_names = self.app.epochs.ch_names
+            ch_names = [ch for ch in ch_names if ch not in bad_channels]
+            new_info = mne.create_info(ch_names, self.app.epochs.info['sfreq'], ch_types='eeg')
+            new_info.set_montage(self.app.epochs.get_montage())
             
             def optimal_subplot_grid(N):
                             # Find the square root of N to start approximating the grid
@@ -74,7 +153,7 @@ class WorkerThread(QThread):
 
                             return int(rows), int(cols)
             rows, cols = optimal_subplot_grid(self.app.n_components)
-
+        
             for i in range(1, self.app.n_components + 1):
                 if i == 1:
                     ax = fig.add_subplot(rows, cols, i)
@@ -94,55 +173,6 @@ class WorkerThread(QThread):
                              color=color)
             self.app.figure_is_empty[0] = False
 
-        else:
-            axs = fig.axes
-            for i, ax in enumerate(axs):
-                color = self.app.text_color
-                if i in self.app.ica.exclude:
-                    color = 'red'
-                ax.set_title(self.app.ica_labels[i],
-                             fontsize=8,
-                             color=color)
-        return
-
-    def plot_overview_OLD(self, fig):
-        if self.app.figure_is_empty[0]:
-            def optimal_subplot_grid(N):
-                # Find the square root of N to start approximating the grid
-                sqrt_N = np.sqrt(N)
-
-                # If N is a perfect square, use that as the grid dimensions
-                if sqrt_N == int(sqrt_N):
-                    return int(sqrt_N), int(sqrt_N)
-
-                # Get the column count by rounding up the square root
-                cols = np.ceil(sqrt_N)
-
-                # Compute the required rows given the column count
-                rows = N // cols
-                if N % cols != 0:
-                    rows += 1
-
-                return int(rows), int(cols)
-            rows, cols = optimal_subplot_grid(self.app.n_components)
-            for i in range(1, self.app.n_components + 1):
-                if i == 1:
-                    ax = fig.add_subplot(rows, cols, i)
-                    first_ax = ax  # Keep a reference to the first axis
-                else:
-                    ax = fig.add_subplot(rows, cols, i, sharex=first_ax, sharey=first_ax)
-                self.app.ica.plot_components([i-1],
-                                             axes=ax,
-                                             title='',
-                                             cmap='jet',
-                                             show=False)
-                color = self.app.text_color
-                if i-1 in self.app.exclude:
-                    color = 'red'
-                ax.set_title(self.app.ica_labels[i-1],
-                             fontsize=8,
-                             color=color)
-            self.app.figure_is_empty[0] = False
         else:
             axs = fig.axes
             for i, ax in enumerate(axs):
@@ -241,7 +271,7 @@ class WorkerThread(QThread):
         axs[1].set_title(f'Dataset - ICA{str(comp).zfill(3)} ({var:.2f}%)')
         return
 
-class BlockingDialog(QDialog):
+class ICABlockingDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setModal(True)
@@ -249,7 +279,7 @@ class BlockingDialog(QDialog):
         layout.addWidget(QLabel("Processing... Please wait."))
         self.setLayout(layout)
 
-class MyApp(QWidget):
+class ICA_Application(QWidget):
     def __init__(self, ica, epochs, parameters = None, apply_baseline = True):
         super().__init__()
         self.setWindowTitle('ICApp')
@@ -257,6 +287,7 @@ class MyApp(QWidget):
         # Main Inputs:
         self.ica = ica.copy()
         self.epochs = epochs
+        self.epochs.pick('eeg')
         if apply_baseline:
             self.epochs.apply_baseline(verbose=None)
 
@@ -290,10 +321,10 @@ class MyApp(QWidget):
         self.exclude_items()
 
         # Blocking Dialog
-        self.dialog = BlockingDialog(self)
+        self.dialog = ICABlockingDialog(self)
 
         # Worker Thread
-        self.thread = WorkerThread(self)
+        self.thread = ICAWorkerThread(self)
         self.thread.finished_signal.connect(self.update_plot)
         self.thread.finished_signal.connect(self.dialog.close)
 
@@ -509,7 +540,7 @@ class MyApp(QWidget):
     def request_update(self):
         # Get Index
         index = self.stacked_widget.currentIndex()
-        print(f'Requesting update ({index})')
+        # print(f'Requesting update ({index})')
 
         self.thread.start()
         self.dialog.exec_()
@@ -517,7 +548,7 @@ class MyApp(QWidget):
     def update_plot(self, data):
         # Get Index
         index = self.stacked_widget.currentIndex()
-        print(f'Updating plot ({index})')
+        # print(f'Updating plot ({index})')
         canvas = self.canvases[index]
         canvas.draw()
 
@@ -571,7 +602,7 @@ class MyApp(QWidget):
     def save_figure(self):
         # Get Index
         index = self.stacked_widget.currentIndex()
-        print(f'Saving figure ({index})')
+        # print(f'Saving figure ({index})')
 
         # Get the current figure and canvas
         fig = self.figures[index]
@@ -587,7 +618,9 @@ class MyApp(QWidget):
         options = QFileDialog.Options()
         fileName, _ = QFileDialog.getSaveFileName(self, "Save ICA", "", "ICA Files (*-ica.fif);;;;All Files (*)", options=options)
         if fileName:
-            self.ica.save(fileName+'-ica.fif')
+            if not fileName.endswith('-ica.fif'):
+                fileName += '-ica.fif'
+            self.ica.save(fileName)
 
     def closeEvent(self, event):
         plt.close('all')
@@ -595,14 +628,14 @@ class MyApp(QWidget):
         self.returnValue = self.ica
         event.accept()
 
-qt_app = None
+# %% Application Call:
 def ICApp(ica, epochs, parameters=None):
     global qt_app
 
     if qt_app is None:
         qt_app = QApplication(sys.argv)
 
-    ex = MyApp(ica, epochs, parameters)
+    ex = ICA_Application(ica, epochs, parameters)
     ex.show()
 
     try:
