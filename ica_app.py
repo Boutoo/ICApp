@@ -1,5 +1,5 @@
 # Author: Couto, B.A.N.
-# Date: August 2023
+# Date: September 2023
 # ICA Application for MNE-Python
 
 # %% Imports
@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.gridspec as gridspec
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import seaborn as sns
 sns.set_theme('paper', 'whitegrid', 'deep')
 
@@ -21,7 +22,6 @@ from PyQt5.QtWidgets import QApplication, QWidget, QDialog, QVBoxLayout, QHBoxLa
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
 # %% Applications Classes
-qt_app = None # Global variable to store the Qt Application
 class ICAWorkerThread(QThread):
     finished_signal = pyqtSignal(dict)
 
@@ -38,7 +38,6 @@ class ICAWorkerThread(QThread):
         fig = self.app.figures[index]
         canvas = self.app.canvases[index]
 
-        # wait 2 seconds
         if index == 0:
             self.plot_overview(fig)
         else:
@@ -96,7 +95,7 @@ class ICAWorkerThread(QThread):
                                      show=False)
                 
                 color = self.app.text_color
-                if i-1 in self.app.exclude:
+                if i in self.app.exclude:
                     color = 'red'
                 ax_topo.set_title(self.app.ica_labels[i],
                              fontsize=8,
@@ -124,64 +123,6 @@ class ICAWorkerThread(QThread):
                 axs[i*2].set_title(self.app.ica_labels[i],
                                    fontsize=8,
                                    color=color)
-        return
-
-    def plot_overview_OLD(self, fig):
-        if self.app.figure_is_empty[0]:
-            components = self.app.ica.get_components()
-            bad_channels = self.app.epochs.info['bads']
-            ch_names = self.app.epochs.ch_names
-            ch_names = [ch for ch in ch_names if ch not in bad_channels]
-            new_info = mne.create_info(ch_names, self.app.epochs.info['sfreq'], ch_types='eeg')
-            new_info.set_montage(self.app.epochs.get_montage())
-            
-            def optimal_subplot_grid(N):
-                            # Find the square root of N to start approximating the grid
-                            sqrt_N = np.sqrt(N)
-
-                            # If N is a perfect square, use that as the grid dimensions
-                            if sqrt_N == int(sqrt_N):
-                                return int(sqrt_N), int(sqrt_N)
-
-                            # Get the column count by rounding up the square root
-                            cols = np.ceil(sqrt_N)
-
-                            # Compute the required rows given the column count
-                            rows = N // cols
-                            if N % cols != 0:
-                                rows += 1
-
-                            return int(rows), int(cols)
-            rows, cols = optimal_subplot_grid(self.app.n_components)
-        
-            for i in range(1, self.app.n_components + 1):
-                if i == 1:
-                    ax = fig.add_subplot(rows, cols, i)
-                    first_ax = ax  # Keep a reference to the first axis
-                else:
-                    ax = fig.add_subplot(rows, cols, i, sharex=first_ax, sharey=first_ax)
-                mne.viz.plot_topomap(components[:, i-1],
-                                     new_info,
-                                     axes=ax,
-                                     cmap='jet',
-                                     show=False)
-                color = self.app.text_color
-                if i-1 in self.app.exclude:
-                    color = 'red'
-                ax.set_title(self.app.ica_labels[i-1],
-                             fontsize=8,
-                             color=color)
-            self.app.figure_is_empty[0] = False
-
-        else:
-            axs = fig.axes
-            for i, ax in enumerate(axs):
-                color = self.app.text_color
-                if i in self.app.ica.exclude:
-                    color = 'red'
-                ax.set_title(self.app.ica_labels[i],
-                             fontsize=8,
-                             color=color)
         return
 
     def plot_component(self, fig, comp):
@@ -215,7 +156,7 @@ class ICAWorkerThread(QThread):
             axs[2].set_ylabel('Trial')
 
             # PSD
-            f1, f2 = self.app.parameters['psd_freqs']
+            f1, f2 = self.app.parameters['psd_xlim']
             if f1 is None:
                 f1 = 1
             if f2 is None:
@@ -258,7 +199,12 @@ class ICAWorkerThread(QThread):
         after_removal = np.sum(epochs.get_data()**2)
         var = 100 * (after_removal/original)
 
-        epochs.average().plot(axes=axs[0], show=False)
+        if self.app.parameters['interactive_butterfly']:
+            epochs.average().plot(axes=axs[0], show=False)
+        else:
+            axs[0].plot(epochs.times, epochs.average().data.T, linewidth=1.5)
+            axs[0].set_xlim([epochs.times[0], epochs.times[-1]])
+        
         axs[0].set_title(f'Dataset ({var:.2f}%)')
 
         # Signal with Current ICA Component Removed
@@ -267,7 +213,11 @@ class ICAWorkerThread(QThread):
         epochs = ica.apply(epochs, verbose=False)
         after_removal = np.sum(epochs.get_data()**2)
         var = 100 * (after_removal/original)
-        epochs.average().plot(axes=axs[1], show=False)
+        if self.app.parameters['interactive_butterfly']:
+            epochs.average().plot(axes=axs[1], show=False)
+        else:
+            axs[1].plot(epochs.times, epochs.average().data.T, linewidth=1.5)
+            axs[1].set_xlim([epochs.times[0], epochs.times[-1]])
         axs[1].set_title(f'Dataset - ICA{str(comp).zfill(3)} ({var:.2f}%)')
         return
 
@@ -280,7 +230,10 @@ class ICABlockingDialog(QDialog):
         self.setLayout(layout)
 
 class ICA_Application(QWidget):
-    def __init__(self, ica, epochs, parameters = None, apply_baseline = True):
+    def __init__(self, ica, epochs,
+                 apply_baseline = True,
+                 psd_xlim = [None, None],
+                 interactive_butterfly = True):
         super().__init__()
         self.setWindowTitle('ICApp')
 
@@ -301,11 +254,10 @@ class ICA_Application(QWidget):
 
         # User Parameters
         self.parameters = {
-            'psd_freqs': [None, None],
+            'psd_xlim': psd_xlim,
+            'interactive_butterfly': interactive_butterfly
         }
-        if parameters is not None:
-            self.parameters.update(parameters)
-        
+
         # Get the source signals for all components
         source_epochs = self.ica.get_sources(epochs)
         self.source_data = source_epochs.get_data()
@@ -501,7 +453,7 @@ class ICA_Application(QWidget):
             self.list1.takeItem(self.list1.row(current_item))
             self.list2.addItem(current_item)
             self.ica.exclude = self.get_bads()
-            self.request_update()
+            # self.request_update()
 
     def move_item_to_list1(self):
         current_item = self.list2.currentItem()
@@ -509,7 +461,7 @@ class ICA_Application(QWidget):
             self.list2.takeItem(self.list2.row(current_item))
             self.list1.addItem(current_item)
             self.ica.exclude = self.get_bads()
-            self.request_update()
+            # self.request_update()
 
     def go_left(self):
         current_index = self.stacked_widget.currentIndex()
@@ -539,7 +491,7 @@ class ICA_Application(QWidget):
 
     def request_update(self):
         # Get Index
-        index = self.stacked_widget.currentIndex()
+        # index = self.stacked_widget.currentIndex()
         # print(f'Requesting update ({index})')
 
         self.thread.start()
@@ -629,13 +581,19 @@ class ICA_Application(QWidget):
         event.accept()
 
 # %% Application Call:
-def ICApp(ica, epochs, parameters=None):
+def ICApp(ica, epochs,
+          apply_baseline = True,
+          psd_xlim = [None, None],
+          interactive_butterfly = True):
     global qt_app
 
     if qt_app is None:
         qt_app = QApplication(sys.argv)
 
-    ex = ICA_Application(ica, epochs, parameters)
+    ex = ICA_Application(ica, epochs,
+                         apply_baseline=apply_baseline,
+                         psd_xlim=psd_xlim,
+                         interactive_butterfly=interactive_butterfly)
     ex.show()
 
     try:
