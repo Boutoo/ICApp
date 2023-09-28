@@ -14,7 +14,7 @@ from matplotlib.figure import Figure
 import matplotlib.gridspec as gridspec
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import seaborn as sns
-sns.set_theme('paper', 'whitegrid', 'deep')
+sns.set_theme('paper', 'whitegrid', 'dark')
 
 # Qt5 Imports
 from PyQt5 import QtGui
@@ -215,8 +215,9 @@ class ICAWorkerThread(QThread):
             if self.app.parameters['interactive_butterfly']:
                 self.app.clear_epochs.average().plot(axes=ax, show=False)
             else:
-                ax.plot(self.app.clear_epochs.times, self.app.clear_epochs.average().data.T, linewidth=1.5)
-                ax.set_xlim([self.app.clear_epochs.times[0], self.app.clear_epochs.times[-1]])
+                # ax.plot(self.app.clear_epochs.times, self.app.clear_epochs.average().data.T, linewidth=1.5)
+                # ax.set_xlim([self.app.clear_epochs.times[0], self.app.clear_epochs.times[-1]])
+                self.app.clear_epochs.average().plot(axes=ax, show=False, selectable=False)
             ax.set_title(f'Dataset ({self.app.clear_var:.2f}%)')
 
         # Signal with Current ICA Component Removed
@@ -227,8 +228,9 @@ class ICAWorkerThread(QThread):
             if self.app.parameters['interactive_butterfly']:
                 new_epochs.average().plot(axes=ax, show=False)
             else:
-                ax.plot(new_epochs.times, new_epochs.average().data.T, linewidth=1.5)
-                ax.set_xlim([new_epochs.times[0], new_epochs.times[-1]])
+                # ax.plot(new_epochs.times, new_epochs.average().data.T, linewidth=1.5)
+                # ax.set_xlim([new_epochs.times[0], new_epochs.times[-1]])
+                new_epochs.average().plot(axes=ax, show=False, selectable=False)
             ax.set_title(f'Dataset - ICA{str(comp).zfill(3)} ({new_var:.2f}%)')
         
         self.app.changing_component = None
@@ -637,9 +639,9 @@ class ICA_Application(QWidget):
             'ytick.labelsize': 8,
             'text.color': self.text_color,
             'axes.labelcolor': self.text_color,
-            'axes.edgecolor': self.text_color,
-            'xtick.color': self.text_color,
-            'ytick.color': self.text_color,
+            # 'axes.edgecolor': (self.text_color),
+            # 'xtick.color': self.text_color,
+            # 'ytick.color': self.text_color,
             'figure.facecolor': self.bg_color,
             'axes.facecolor': (1,1,1,self.parameters['bg_alpha'])})
 
@@ -677,7 +679,7 @@ def ICApp(ica, epochs,
           cmap='turbo',
           apply_baseline = True,
           psd_xlim = [None, None],
-          interactive_butterfly = True,
+          interactive_butterfly = False,
           overview_avg_xlim = [None, None]):
     global qt_app
 
